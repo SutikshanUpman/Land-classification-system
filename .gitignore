@@ -1,0 +1,8 @@
+data/raw/ 
+data/processed/ 
+models/ 
+*.h5 
+*.keras 
+*.pt 
+__pycache__/ 
+.ipynb_checkpoints/
