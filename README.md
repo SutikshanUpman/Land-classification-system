@@ -162,6 +162,17 @@ data/raw/images_dataSAT/
                 │  Produces final report      │
                 └─────────────────────────────┘
 ```
+---
+
+## ⚠️ Final Data Pipeline Decision
+
+- The **CSV-based custom generator** is the official training pipeline.
+- It ensures:
+  - reproducibility
+  - consistency across Keras & PyTorch
+
+- `image_dataset_from_directory` is used **only for experimentation**
+  (augmentation, tf.data understanding) and NOT used in final training.
 
 ---
 
