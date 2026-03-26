@@ -1,20 +1,32 @@
 # 🌍 Agricultural Land Classification System
 
-> A deep learning pipeline for satellite imagery binary classification using CNNs and Vision Transformers — built with Keras and PyTorch.
+> A deep learning pipeline for satellite imagery binary classification using CNNs and Vision Transformers — built with Keras (TensorFlow 2.20.0) and PyTorch (Python 3.10.19).
 
 ---
 
 ## 📌 Project Overview
 
-This capstone project develops a **binary land classification system** for agricultural applications. Using satellite imagery, the system classifies land into two categories:
+This capstone project develops a **binary land classification system** for agricultural applications. Using Sentinel-2 satellite imagery, the system classifies land into two categories:
 
-- 🌾 **class_1_agri** — Cultivable / agricultural land
+- 🌾 **class_1_agri** — Cultivable / agricultural land  
 - 🪨 **class_0_non_agri** — Non-cultivable / non-agricultural land
 
 **Dataset:** 6,000 images total (3,000 per class), Sentinel-2 satellite tiles.  
-**Split:** 70% train / 15% val / 15% test → 4,200 / 900 / 900 images.
+**Split:** 70% train / 15% val / 15% test → 4,200 / 900 / 900 images (stratified, `random_state=42`).
 
 The project runs **parallel implementations in Keras and PyTorch**, enabling direct framework comparison across all stages.
+
+---
+
+## 🎯 Success Criteria
+
+| Metric | Target |
+|--------|--------|
+| Accuracy | ≥ 90% on held-out test set |
+| F1-Score | ≥ 0.90 (macro average) |
+| AU-ROC | ≥ 0.95 |
+
+These targets are based on prior binary land-use classification benchmarks on Sentinel-2 imagery at comparable resolution.
 
 ---
 
@@ -51,6 +63,11 @@ land-classification/
 │   └── report/
 │
 ├── notebooks/
+│   ├── 01_memory_vs_path_loading.ipynb
+│   ├── 02_keras_custom_generator.ipynb
+│   ├── 03_keras_utility_pipeline.ipynb
+│   └── 04_pytorch_custom_dataset.ipynb
+│
 ├── requirements.txt
 └── README.md
 ```
@@ -70,18 +87,17 @@ Raw images are inconsistent in size and format. Stage 1 handles resize and forma
 
 ```
 Stage 1 — Preprocessing (done once, deterministic):
-  ✔ Resize all images to 64×64
+  ✔ Resize all images to 64×64 using PIL
   ✔ Convert to RGB
   ✔ Skip corrupt images
   ✖ Do NOT normalize pixel values
 
 Stage 2 & Stage 3 — Training-time (live, per epoch):
-  ✔ Normalize pixel values to [0, 1]
+  ✔ Normalize pixel values to [0, 1] (Rescaling / ToTensor)
   ✔ Random augmentation:
       - Horizontal / vertical flip
-      - Random rotation
-      - Color jitter
-      - Random crop
+      - Random rotation (±10–15°)
+      - Random zoom (Keras only: 0.1)
 ```
 
 ---
@@ -96,8 +112,10 @@ data/splits/val.csv
 data/splits/test.csv
 ```
 
+Split creation uses `sklearn.model_selection.train_test_split` with `stratify=df["label"]` and `random_state=42`.
+
 ❌ Do NOT use framework-based splitting (e.g., `validation_split` in Keras) for training.  
-`image_dataset_from_directory` with `validation_split` is used in Stage 1 **for demonstration only** to compare Keras built-in loading vs. the custom CSV-based approach. All training in Stages 2 & 3 must use the CSV splits.
+`image_dataset_from_directory` with `validation_split` is used in Stage 1 (Notebook 3) **for demonstration only** to compare Keras built-in loading vs. the custom CSV-based approach. All training in Stages 2 & 3 must use the CSV splits.
 
 **Reason:** Ensures identical data exposure across Keras and PyTorch, fair CNN vs. ViT comparison, and prevents data leakage.
 
@@ -114,19 +132,20 @@ data/raw/images_dataSAT/
 │                                             │
 │  1. Explore raw data                        │
 │     - Class balance, image dimensions       │
-│     - Memory vs generator loading comparison│
+│     - Memory (37.94 MB, 2.95s) vs           │
+│       generator (0.54 MB, 0.03s) comparison │
 │                                             │
 │  2. Preprocess and save to disk (once)      │
 │     - Resize all images to 64×64            │
 │     - Save to data/processed/               │
 │                                             │
 │  3. Create reproducible splits              │
-│     - Divide into train / val / test        │
+│     - Stratified 70/15/15, random_state=42  │
 │     - Save CSVs (paths → data/splits/)      │
 │                                             │
 │  4. Build and validate augmentation pipes   │
 │     - Keras: tf.data + augmentation layers  │
-│     - PyTorch: ImageFolder + transforms     │
+│     - PyTorch: Custom Dataset + transforms  │
 └──────────┬──────────────────────────────────┘
            │
            ├──► data/processed/class_0_non_agri/    ┐
@@ -162,17 +181,15 @@ data/raw/images_dataSAT/
                 │  Produces final report      │
                 └─────────────────────────────┘
 ```
+
 ---
 
 ## ⚠️ Final Data Pipeline Decision
 
 - The **CSV-based custom generator** is the official training pipeline.
-- It ensures:
-  - reproducibility
-  - consistency across Keras & PyTorch
+- It ensures reproducibility and consistency across Keras & PyTorch.
 
-- `image_dataset_from_directory` is used **only for experimentation**
-  (augmentation, tf.data understanding) and NOT used in final training.
+- `image_dataset_from_directory` is used **only for experimentation** (Notebook 3: augmentation understanding, tf.data API) and NOT used in final training.
 
 ---
 
@@ -180,16 +197,39 @@ data/raw/images_dataSAT/
 
 ### Stage 1 — Data Handling
 
+**Notebooks:** `01_memory_vs_path_loading.ipynb`, `02_keras_custom_generator.ipynb`, `03_keras_utility_pipeline.ipynb`, `04_pytorch_custom_dataset.ipynb`
+
 | Step | What happens | Output |
 |------|-------------|--------|
 | Exploration | Visualize samples, check class balance | Understanding of raw data |
 | Loading comparison | RAM-based (37.94 MB, 2.95s) vs path-based (0.54 MB, 0.03s) | Justification for generator approach |
-| Preprocessing | Resize to 64×64 RGB, skip corrupt images | `data/processed/` |
-| Split creation | 70/15/15 stratified split, saved as CSVs | `data/splits/*.csv` |
+| Preprocessing | Resize to 64×64 RGB via PIL, skip corrupt images | `data/processed/` |
+| Split creation | 70/15/15 stratified split (`random_state=42`), saved as CSVs | `data/splits/*.csv` |
 | Keras pipeline | Custom generator + `image_dataset_from_directory` (demo) + augmentation + `.cache().prefetch()` | Keras data pipeline |
-| PyTorch pipeline | `ImageFolder` + `transforms.Compose` + `DataLoader` | PyTorch data pipeline |
+| PyTorch pipeline | Custom `LandDataset(Dataset)` + `transforms.Compose` + `DataLoader` | PyTorch data pipeline |
 
 **Key files:** `memory_loader.py`, `generator_loader.py`, `augmentation_keras.py`, `augmentation_torch.py`
+
+#### Stage 1 Implementation Details
+
+**Keras custom generator** (`02_keras_custom_generator.ipynb`):
+- Reads `filepath` and `label` columns from CSVs
+- Shuffles indices with `np.random.shuffle` at the start of each epoch
+- Loads images via `cv2.imread` → BGR→RGB conversion → normalize to `[0, 1]`
+- Augmentation: `cv2.flip` (horizontal, p=0.5) + `cv2.warpAffine` rotation (±15°, p=0.5)
+- Yields `(batch_images, batch_labels)` as NumPy arrays; loops indefinitely
+
+**Keras utility pipeline** (`03_keras_utility_pipeline.ipynb`):
+- `image_dataset_from_directory` with `validation_split=0.2`, `seed=1337` — demo only
+- `tf.keras.layers.Rescaling(1/255)` for normalization
+- `tf.keras.Sequential` augmentation: `RandomFlip("horizontal_and_vertical")`, `RandomRotation(0.2)`, `RandomZoom(0.1)`
+- Applied via `.map(num_parallel_calls=AUTOTUNE)` → `.cache()` → `.prefetch(AUTOTUNE)`
+
+**PyTorch custom dataset** (`04_pytorch_custom_dataset.ipynb`):
+- `LandDataset(Dataset)` — reads filepath/label from DataFrame, loads via `cv2.imread`, resizes to `(64, 64)`, converts BGR→RGB
+- Train transforms: `ToPILImage → RandomHorizontalFlip → RandomRotation(10) → ToTensor` (auto-scales to `[0, 1]`)
+- Val/test transforms: `ToPILImage → ToTensor` only
+- `DataLoader(batch_size=32, shuffle=True)` for train; `shuffle=False` for val/test
 
 ---
 
@@ -204,6 +244,29 @@ data/raw/images_dataSAT/
 
 **Key files:** `cnn_keras.py`, `cnn_pytorch.py`, `evaluate.py`
 
+#### CNN Architecture (planned)
+
+| Layer | Config |
+|-------|--------|
+| Conv2D block 1 | 32 filters, 3×3, ReLU + MaxPool 2×2 |
+| Conv2D block 2 | 64 filters, 3×3, ReLU + MaxPool 2×2 |
+| Conv2D block 3 | 128 filters, 3×3, ReLU + MaxPool 2×2 |
+| Flatten | — |
+| Dense | 256, ReLU + Dropout 0.5 |
+| Output | 1 unit, Sigmoid (binary) |
+
+**Training config:**
+
+| Hyperparameter | Value |
+|---------------|-------|
+| Optimizer | Adam |
+| Learning rate | 1e-3 |
+| Batch size | 32 |
+| Epochs | 30 (early stopping, patience=5) |
+| Loss | Binary crossentropy |
+| Input shape | (64, 64, 3) |
+| Random seed | 42 |
+
 ---
 
 ### Stage 3 — Vision Transformer Integration
@@ -215,6 +278,27 @@ data/raw/images_dataSAT/
 | Evaluation | Same metrics on same test split as Stage 2 | Test split + weights | Metrics for Stage 4 |
 
 **Key files:** `vit_keras.py`, `vit_pytorch.py`, `transfer_learning.py`
+
+#### ViT Architecture & Transfer Learning
+
+**Pretrained checkpoint:** `google/vit-base-patch16-224` (ImageNet-21k pretrained, available via HuggingFace `transformers`)
+
+**Adaptation strategy:**
+- Input images upsampled from 64×64 to 224×224 at load time to match ViT patch expectations
+- Freeze all transformer encoder layers initially; fine-tune the classification head for 10 epochs
+- Unfreeze the last 2 transformer blocks and fine-tune end-to-end for up to 20 additional epochs
+
+**Training config:**
+
+| Hyperparameter | Value |
+|---------------|-------|
+| Optimizer | AdamW |
+| Learning rate (head) | 1e-3 |
+| Learning rate (fine-tune) | 1e-5 |
+| Batch size | 32 |
+| Patch size | 16×16 |
+| Input size | 224×224 |
+| Random seed | 42 |
 
 ---
 
@@ -243,15 +327,32 @@ data/raw/images_dataSAT/
 
 ---
 
+## 🔁 Reproducibility
+
+| Factor | Value |
+|--------|-------|
+| Python version | 3.10.19 |
+| TensorFlow / Keras | 2.20.0 |
+| PyTorch | see `requirements.txt` |
+| Sklearn split seed | `random_state=42` |
+| Keras utility seed | `seed=1337` (demo only) |
+| PyTorch DataLoader | `shuffle=True` (train), `False` (val/test) |
+| Global random seed | Set at notebook start via `np.random.seed(42)`, `torch.manual_seed(42)`, `tf.random.set_seed(42)` |
+
+All CSV splits are generated once in Notebook 2 and reused by all subsequent stages. Re-running Notebook 2 will regenerate identical splits due to the fixed `random_state=42`.
+
+---
+
 ## 🛠️ Tech Stack
 
 | Category | Tools |
 |----------|-------|
 | Deep Learning | Keras / TensorFlow 2.20.0, PyTorch |
-| Data Processing | NumPy, Pandas, Pillow |
+| Data Processing | NumPy, Pandas, Pillow, OpenCV (`cv2`) |
 | Visualization | Matplotlib, Seaborn |
-| Notebooks | Jupyter / VS Code |
+| Notebooks | Jupyter / VS Code (kernel: `ai-gpu`, Python 3.10.19) |
 | Evaluation | Scikit-learn |
+| Progress | tqdm |
 
 ---
 
@@ -263,16 +364,28 @@ cd land-classification
 pip install -r requirements.txt
 ```
 
+**Run order:**
+
+```
+Notebook 01  →  understand loading strategies (no output written)
+Notebook 02  →  preprocess images + generate CSV splits  ← must run first
+Notebook 03  →  explore Keras tf.data pipeline (demo only)
+Notebook 04  →  verify PyTorch pipeline matches Keras output
+Stage 2      →  train CNN (Keras + PyTorch)
+Stage 3      →  fine-tune ViT (Keras + PyTorch)
+Stage 4      →  evaluate all models + produce report
+```
+
 ---
 
-## 📈 Results Summary *(to be updated)*
+## 📈 Results Summary *(to be updated after Stage 4)*
 
 | Model | Framework | Accuracy | F1-Score | AU-ROC |
 |-------|-----------|----------|----------|--------|
 | CNN | Keras | — | — | — |
 | CNN | PyTorch | — | — | — |
-| ViT | Keras | — | — | — |
-| ViT | PyTorch | — | — | — |
+| ViT (fine-tuned) | Keras | — | — | — |
+| ViT (fine-tuned) | PyTorch | — | — | — |
 
 ---
 
